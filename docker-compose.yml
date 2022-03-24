@@ -1,0 +1,115 @@
+version: "3"
+services:
+  elasticsearch:
+    container_name: es-container
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.11.0
+    environment:
+      - xpack.security.enabled=false
+      - "discovery.type=single-node"
+    networks:
+      - local_default
+    ports:
+      - 9200:9200
+
+  activemq:
+    image: rmohr/activemq:5.10.0
+    container_name: activemq
+    networks:
+      - local_default
+    environment:
+      - "TZ=Europe/Amsterdam"
+    volumes:
+      - "./activemq/activemq.xml:/conf/activemq.xml"
+    ports:
+      - "61616:61616" # broker (admin:adminactivemq)(amq:amq)
+      - "8161:8161"   # web    http://boot2docker:8161/admin (admin:admin)
+      - "61613:61613"
+
+  database:
+    image: postgres:11.7
+    container_name: flowable-database
+    ports:
+      - 5432:5432
+    networks:
+      - local_default
+    command: postgres -c 'max_connections=200'
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_MULTIPLE_DATABASES="FLOWABLE_TEST"
+    volumes:
+      - ./config/database/postgres-initdb:/docker-entrypoint-initdb.d
+
+  flowable-engage:
+    image: artifacts.flowable.com/flowable/flowable-engage:latest
+    networks:
+      - local_default
+    depends_on:
+      - elasticsearch
+      - activemq
+      - database
+    container_name: flowable-engage
+    environment:
+      - spring.jpa.database-platform=org.hibernate.dialect.PostgreSQL9Dialect
+      - spring.datasource.url=jdbc:postgresql://database:5432/FLOWABLE_TEST
+      - spring.datasource.username=postgres
+      - spring.datasource.password=postgres
+      - spring.datasource.driver-class-name=org.postgresql.Driver
+      - flowable.indexing.elasticsearch-addresses=http://es-container:9200
+      - spring.activemq.broker-url=tcp://activemq:61616
+      - flowable.websocket.stomp-broker-addresses=activemq:61613
+      - flowable.license.db-store-enabled=false
+      - flowable.license.location=file:/etc/license/flowable.license
+      - flowable.external-system.wechat.content.base-content-url=http://flowable-wechat-adapter:8081/wechat-api/content/
+      - flowable.external-system.wechat.content.rest-username=admin
+      - flowable.external-system.wechat.content.rest-password=test
+    ports:
+      - 8080:8080
+    volumes:
+      - "./config/license:/etc/license/"
+
+  flowable-wechat-adapter:
+    image: artifacts.flowable.com/flowable/flowable-adapter-wechat:latest
+    networks:
+      - local_default
+    depends_on:
+      - flowable-engage
+      - activemq
+    container_name: flowable-wechat-adapter
+    environment:
+      - server.port=31330
+      - flowable.adapter.content.enabled=true
+      - flowable.adapter.content.rest-endpoint=http://flowable-engage:8080/flowable-engage/content-api/
+      - flowable.adapter.content.admin-username=admin
+      - flowable.adapter.content.admin-password=test
+      - flowable.adapter.wechat.content-authorization=Basic Zmxvd2FibGU6bWltYWNvbQ==
+      - flowable.adapter.wechat.receive-content-max-size=-1
+      - flowable.adapter.wechat.webhook-servlet-path=/wechat-api
+      - flowable.adapter.wechat.webhook-load-on-startup=1
+      - spring.activemq.broker-url=tcp://activemq:61616
+      - flowable.adapter.wechat.jms.inbound-message-destination=wechat-inbound
+      - flowable.adapter.wechat.jms.inbound-status-destination=wechat-inbound-status
+      - flowable.adapter.wechat.jms.inbound-error-destination=wechat-inbound-error
+      - flowable.adapter.wechat.jms.outbound=wechat-outbound
+      - flowable.adapter.wechat.jms.get-access-token-destination=wechat-get-access-token
+      - flowable.adapter.wechat.jms.store-access-token-destination=wechat-store-access-token
+      - flowable.adapter.wechat.jms.send-message-wait-duration=PT10S
+      - flowable.adapter.wechat.api.base-url=https://api.weixin.qq.com/cgi-bin/
+      - flowable.adapter.wechat.api.token-url=https://api.weixin.qq.com/cgi-bin/token
+      - flowable.adapter.wechat.api.user-profile-url=https://api.weixin.qq.com/cgi-bin/user/info
+      - flowable.adapter.wechat.api.custom-message-url=https://api.weixin.qq.com/cgi-bin/message/custom/send
+      - flowable.adapter.wechat.api.template-message-url=https://api.weixin.qq.com/cgi-bin/message/template/send
+      - flowable.adapter.wechat.unsupported-message-type-error=
+      - flowable.adapter.wechat.user-profile-fetching=true
+      - flowable.adapter.wechat.default-user-name=Unknown
+      - flowable.adapter.wechat.secure-communication=false
+      - flowable.adapter.wechat.default-app-id=wxe9e311fa84465406
+      - flowable.adapter.wechat.default-app-secret=2dcc5e3c2edf14601f5c7f2a9c1f0b63
+      - flowable.adapter.wechat.default-app-token=123456
+      - flowable.adapter.wechat.default-aes-key=tHsp+gNR+c3mExeo4XfMOXBBGs08sHkle/qvxA01Ngk
+    ports:
+      - 31330:31330
+      - 8081:8080
+
+
+networks:
+  local_default:

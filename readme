@@ -1,0 +1,14 @@
+Git clone the project
+See the steps in readme_once.png
+
+
+Start project
+-------------
+
+1. sh deploy.sh
+
+
+Stop project
+------------
+
+1. sh shutdown.sh
